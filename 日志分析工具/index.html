@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plan 日志查询器</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111315;
+      --surface: #1a1d20;
+      --surface-2: #22262a;
+      --border: #34393f;
+      --text: #f1f3f5;
+      --muted: #9aa2aa;
+      --blue: #48a1ff;
+      --green: #45c486;
+      --amber: #f4b85b;
+      --red: #f16d76;
+      --focus: #80bdff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button, input { font: inherit; letter-spacing: 0; }
+
+    .topbar {
+      height: 58px;
+      border-bottom: 1px solid var(--border);
+      background: #17191c;
+    }
+
+    .topbar-inner, main {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .topbar-inner {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .brand-mark {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #386a97;
+      background: #17334d;
+      color: #9bd0ff;
+      border-radius: 6px;
+      font-weight: 700;
+    }
+    .brand h1 { margin: 0; font-size: 16px; font-weight: 650; }
+    .status { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .status::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; background: var(--amber); }
+    .status.online::before { background: var(--green); }
+
+    main { padding: 28px 0 48px; }
+
+    .query-panel {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 24px;
+    }
+
+    .query-grid {
+      display: grid;
+      grid-template-columns: minmax(340px, 1fr) 170px auto 116px;
+      gap: 12px;
+      align-items: end;
+    }
+
+    label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 7px; }
+    input[type="text"], input[type="date"] {
+      width: 100%;
+      height: 42px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--text);
+      padding: 0 12px;
+      outline: none;
+    }
+    input:focus { border-color: var(--focus); box-shadow: 0 0 0 2px rgb(72 161 255 / 16%); }
+    input::placeholder { color: #6f7780; }
+
+    .segmented {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      height: 42px;
+      padding: 3px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+    }
+    .segmented button {
+      min-width: 58px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .segmented button.active { background: #303740; color: var(--text); }
+
+    .primary {
+      height: 42px;
+      border: 1px solid #2889ea;
+      border-radius: 6px;
+      background: #2387e7;
+      color: white;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .primary:hover { background: #3397f4; }
+    .primary:disabled { cursor: wait; opacity: .65; }
+
+    .scope-note { margin: 10px 0 0; color: var(--muted); font-size: 12px; }
+
+    .empty-state {
+      min-height: 360px;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      text-align: center;
+    }
+    .empty-state strong { display: block; margin-bottom: 6px; color: #d2d6da; font-size: 15px; }
+
+    .results { padding-top: 24px; }
+    .hidden { display: none !important; }
+    .summary {
+      display: grid;
+      grid-template-columns: 1.3fr repeat(3, minmax(130px, .7fr));
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--surface);
+    }
+    .summary-cell { min-height: 94px; padding: 16px 18px; border-right: 1px solid var(--border); }
+    .summary-cell:last-child { border-right: 0; }
+    .summary-label { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+    .summary-value { font-size: 18px; font-weight: 650; overflow-wrap: anywhere; }
+    .summary-reason { color: var(--muted); margin-top: 5px; font-size: 12px; }
+
+    .verdict { display: inline-flex; align-items: center; gap: 8px; }
+    .verdict::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--amber); }
+    .verdict.multi::before { background: var(--red); }
+    .verdict.single::before { background: var(--green); }
+
+    .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 26px 0 10px; }
+    .section-head h2 { margin: 0; font-size: 14px; }
+    .section-head span { color: var(--muted); font-size: 12px; }
+
+    .navi-log-list { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .navi-log-row { padding: 12px 14px; border-bottom: 1px solid var(--border); background: var(--surface); }
+    .navi-log-row:last-child { border-bottom: 0; }
+    .navi-log-meta { display: flex; gap: 12px; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+    .navi-log-service { color: var(--green); }
+    .navi-log-message { color: #d2d6da; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 "Cascadia Code", Consolas, monospace; }
+    .navi-log-empty { padding: 18px; color: var(--muted); background: var(--surface); }
+    .flow-section { margin-top: 26px; }
+    .flow-card { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
+    .flow-card-body { padding: 16px 18px; }
+    .flow-card pre { margin: 0; max-height: 280px; overflow: auto; }
+    .conversation-list { overflow: hidden; }
+    .conversation-row { display: grid; grid-template-columns: 88px minmax(260px, 1.35fr) minmax(180px, 1fr) 150px minmax(180px, 1fr) minmax(220px, 1.2fr); gap: 12px; align-items: start; padding: 12px 14px; border-bottom: 1px solid var(--border); background: var(--surface); }
+    .conversation-row:last-child { border-bottom: 0; }
+    .conversation-row.current { background: #172331; }
+    .conversation-label { color: var(--blue); font-weight: 650; }
+    .conversation-field { min-width: 0; }
+    .conversation-field-label { color: var(--muted); font-size: 11px; margin-bottom: 3px; }
+    .conversation-field-value { overflow-wrap: anywhere; color: var(--text); font: 12px/1.5 "Cascadia Code", Consolas, monospace; }
+    .naviinfo-grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 12px; }
+    .naviinfo-item { min-width: 0; }
+    .naviinfo-label { color: var(--muted); font-size: 12px; margin-bottom: 5px; }
+    .naviinfo-value { color: var(--text); overflow-wrap: anywhere; }
+    .flow-event { position: relative; display: grid; grid-template-columns: 92px 104px 1fr; gap: 12px; padding: 11px 0 11px 16px; border-bottom: 1px solid var(--border); }
+    .flow-event:last-child { border-bottom: 0; }
+    .flow-event::before { content: ""; position: absolute; left: 0; top: 17px; width: 7px; height: 7px; border-radius: 50%; background: var(--blue); }
+    .flow-event.error::before { background: var(--red); }
+    .flow-event.tool::before { background: var(--amber); }
+    .flow-event.output::before { background: var(--green); }
+    .flow-event-time, .flow-event-service { color: var(--muted); font-size: 12px; }
+    .flow-event-title { color: var(--text); font-weight: 600; }
+    .flow-event-message { grid-column: 3; color: #c9ced3; font: 12px/1.55 "Cascadia Code", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .flow-empty { color: var(--muted); }
+    .route-overview { margin-top: 26px; }
+    .route-headline { padding: 16px 18px; color: #b9dcff; font-size: 14px; line-height: 1.7; border-bottom: 1px solid var(--border); background: #172331; overflow-wrap: anywhere; }
+    .route-node { display: grid; grid-template-columns: 95px 120px 170px 1fr; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--border); background: var(--surface); }
+    .route-node:last-child { border-bottom: 0; }
+    .route-node-title { color: var(--text); font-weight: 600; }
+    .route-node-detail { color: #c9ced3; overflow-wrap: anywhere; }
+    .route-node-evidence { grid-column: 4; color: var(--muted); font: 12px/1.55 "Cascadia Code", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .source-list { display: flex; gap: 8px; flex-wrap: wrap; padding: 14px; }
+    .source-pill { padding: 4px 8px; border: 1px solid #46637d; border-radius: 4px; color: #b9dcff; background: #1b2c3e; font-size: 12px; }
+    .raw-toggle { margin-top: 26px; }
+    .raw-toggle summary { padding: 4px 0 10px; }
+
+    details { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; color: var(--muted); }
+    summary { cursor: pointer; color: #c9ced3; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border-radius: 6px; background: #0c0e10; color: #aeb6be; font: 12px/1.6 "Cascadia Code", Consolas, monospace; }
+
+    .error {
+      margin-top: 18px;
+      padding: 12px 14px;
+      border: 1px solid #773b41;
+      border-radius: 6px;
+      background: #2a171a;
+      color: #ffadb4;
+    }
+
+    @media (max-width: 860px) {
+      .query-grid { grid-template-columns: 1fr 160px; }
+      .primary { width: 100%; }
+      .summary { grid-template-columns: 1fr 1fr; }
+      .summary-cell:nth-child(2) { border-right: 0; }
+      .summary-cell:nth-child(-n+2) { border-bottom: 1px solid var(--border); }
+      .navi-log-meta { flex-wrap: wrap; }
+      .conversation-row { grid-template-columns: 82px 1fr 1fr; }
+      .conversation-field:nth-child(6) { grid-column: 2 / span 2; }
+      .naviinfo-grid { grid-template-columns: 1fr 1fr; }
+      .flow-event { grid-template-columns: 82px 1fr; }
+      .flow-event-message { grid-column: 2; }
+      .route-node { grid-template-columns: 82px 1fr; }
+      .route-node-evidence { grid-column: 2; }
+    }
+
+    @media (max-width: 560px) {
+      .topbar-inner, main { width: min(100% - 20px, 1180px); }
+      .query-grid { grid-template-columns: 1fr; }
+      .summary { grid-template-columns: 1fr; }
+      .summary-cell { border-right: 0; border-bottom: 1px solid var(--border); }
+      .summary-cell:last-child { border-bottom: 0; }
+      .navi-log-row { padding: 10px 12px; }
+      .conversation-row { grid-template-columns: 1fr 1fr; gap: 8px; }
+      .conversation-label { grid-column: 1 / -1; }
+      .conversation-field:nth-child(6) { grid-column: auto; }
+      .naviinfo-grid { grid-template-columns: 1fr; }
+      .flow-event { grid-template-columns: 1fr; gap: 3px; padding-left: 14px; }
+      .flow-event-message { grid-column: 1; }
+      .route-node { grid-template-columns: 1fr; gap: 3px; padding-left: 12px; }
+      .route-node-evidence { grid-column: 1; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-mark">P</div>
+        <h1>Plan 日志查询器</h1>
+      </div>
+      <div id="serverStatus" class="status">检测服务</div>
+    </div>
+  </header>
+
+  <main>
+    <section class="query-panel">
+      <form id="queryForm" class="query-grid">
+        <div>
+          <label for="recordId">日志 ID</label>
+          <input id="recordId" name="recordId" type="text" autocomplete="off" spellcheck="false" placeholder="recordId，支持三段式 ID" required>
+        </div>
+        <div>
+          <label for="queryDate">日期（北京时间）</label>
+          <input id="queryDate" name="date" type="date" required>
+        </div>
+        <div>
+          <label>环境</label>
+          <div id="scopeControl" class="segmented" role="group" aria-label="查询环境">
+            <button type="button" class="active" data-scope="auto">自动</button>
+            <button type="button" data-scope="dev">开发</button>
+            <button type="button" data-scope="prod">生产</button>
+          </div>
+        </div>
+        <button id="searchButton" class="primary" type="submit">查询分类</button>
+      </form>
+      <p class="scope-note">自动模式会同时检索 Navi 主体、开发环境和上游编排服务；三段式 ID 会按根 ID 扩展关联链路。</p>
+      <div id="errorBox" class="error hidden" role="alert"></div>
+    </section>
+
+    <section id="emptyState" class="empty-state">
+      <div><strong>等待查询</strong>输入日志 ID 和日期后，这里会直接显示 Plan 分类。</div>
+    </section>
+
+    <section id="results" class="results hidden" aria-live="polite">
+      <div class="summary">
+        <div class="summary-cell">
+          <div class="summary-label">判断</div>
+          <div id="verdict" class="summary-value verdict">未知</div>
+          <div id="reason" class="summary-reason"></div>
+        </div>
+        <div class="summary-cell">
+          <div class="summary-label">Plan</div>
+          <div id="planValue" class="summary-value">-</div>
+        </div>
+        <div class="summary-cell">
+          <div class="summary-label">多意图</div>
+          <div id="multiIntent" class="summary-value">-</div>
+        </div>
+        <div class="summary-cell">
+          <div class="summary-label">命中日志</div>
+          <div id="logCount" class="summary-value">0</div>
+        </div>
+      </div>
+
+      <section id="recentTurnsSection" class="flow-section">
+        <div class="section-head"><h2>1. 上轮对话</h2><span>dialogHistory 最新一轮</span></div>
+        <div id="recentTurnsCard" class="flow-card"></div>
+      </section>
+
+      <section id="naviLogsSection" class="hidden">
+        <div class="section-head">
+          <h2>Navi 内部流程</h2>
+          <span id="naviLogsCount"></span>
+        </div>
+        <section class="route-overview">
+          <div class="section-head"><h2>1. Navi 内部实际链路</h2><span id="routeUpstream"></span></div>
+          <div id="routeSummaryCard" class="flow-card"></div>
+        </section>
+        <section class="flow-section">
+          <div class="section-head"><h2>2. NaviInfo</h2><span>请求上下文</span></div>
+          <div id="naviInfoCard" class="flow-card"></div>
+        </section>
+        <section class="flow-section">
+          <div class="section-head"><h2>3. 原始 Input</h2><span>入口请求</span></div>
+          <div id="naviInputCard" class="flow-card"></div>
+        </section>
+        <section class="flow-section">
+          <div class="section-head"><h2>4. 关键流程</h2><span id="flowEventsCount"></span></div>
+          <div id="flowEvents" class="flow-card"></div>
+        </section>
+        <section class="flow-section">
+          <div class="section-head"><h2>5. 最终输出</h2><span>DONE / NLG</span></div>
+          <div id="naviFinalOutput" class="flow-card flow-card-body"></div>
+        </section>
+        <details class="raw-toggle">
+          <summary>展开全部 naviag / naviag-dev 原始日志</summary>
+          <div id="naviLogs" class="navi-log-list"></div>
+        </details>
+      </section>
+
+      <details>
+        <summary>查询详情</summary>
+        <pre id="queryDetails"></pre>
+      </details>
+    </section>
+  </main>
+
+  <script>
+    const form = document.getElementById('queryForm');
+    const recordInput = document.getElementById('recordId');
+    const dateInput = document.getElementById('queryDate');
+    const searchButton = document.getElementById('searchButton');
+    const errorBox = document.getElementById('errorBox');
+    const emptyState = document.getElementById('emptyState');
+    const results = document.getElementById('results');
+    let scope = 'auto';
+
+    const localToday = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).format(new Date());
+    dateInput.value = localToday;
+    dateInput.max = localToday;
+    recordInput.value = localStorage.getItem('plan-log-viewer:last-id') || '';
+
+    document.querySelectorAll('#scopeControl button').forEach(button => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('#scopeControl button').forEach(item => item.classList.remove('active'));
+        button.classList.add('active');
+        scope = button.dataset.scope;
+      });
+    });
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>'"]/g, char => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      })[char]);
+    }
+
+    function formatTime(value) {
+      if (!value) return '-';
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return value;
+      return new Intl.DateTimeFormat('zh-CN', {
+        timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+      }).format(parsed);
+    }
+
+    function setError(message = '') {
+      errorBox.textContent = message;
+      errorBox.classList.toggle('hidden', !message);
+    }
+
+    function renderNaviLogs(items) {
+      if (!items.length) return '<div class="navi-log-empty">没有命中 naviag 或 naviag-dev 日志。</div>';
+      return items.map(item => `<div class="navi-log-row">
+        <div class="navi-log-meta"><span>${escapeHtml(formatTime(item.timestamp))}</span><span class="navi-log-service">${escapeHtml(item.service || '-')}</span></div>
+        <div class="navi-log-message">${escapeHtml(item.message)}</div>
+      </div>`).join('');
+    }
+
+    function displayValue(value) {
+      if (value === null || value === undefined || value === '') return '-';
+      if (typeof value === 'object') return JSON.stringify(value, null, 2);
+      return String(value);
+    }
+
+    function renderBoolean(value) {
+      if (value === true) return '是';
+      if (value === false) return '否';
+      return '-';
+    }
+
+    function renderPreviousTurn(turn) {
+      if (!turn) return '<div class="flow-card-body flow-empty">没有找到上轮对话。</div>';
+      const items = [
+        ['RecordId', turn.recordId], ['上轮输入', turn.input], ['Plan', turn.plan],
+        ['请求函数', turn.function], ['Task / Skill', [turn.task, turn.skill].filter(Boolean).join(' / ')],
+        ['流类型', turn.streamType], ['输出类型', turn.llmOutputType],
+        ['需要用户输入', renderBoolean(turn.needsUserInput)],
+        ['候选数量', turn.candidateCount === null ? '-' : turn.candidateCount],
+        ['已由上游响应', renderBoolean(turn.isAlreadyResponse)]
+      ];
+      return `<div class="flow-card-body"><div class="naviinfo-grid">${items.map(([label, value]) => `<div class="naviinfo-item"><div class="naviinfo-label">${escapeHtml(label)}</div><div class="naviinfo-value">${escapeHtml(displayValue(value))}</div></div>`).join('')}</div><div class="section-head"><h2>上轮最终结果</h2></div><div class="navi-log-message">${escapeHtml(turn.displayText || '-')}</div><details><summary>展开完整上轮数据</summary><pre>${escapeHtml(JSON.stringify(turn.raw, null, 2))}</pre></details></div>`;
+    }
+
+    function renderRecentTurns(turns) {
+      if (!turns || !turns.length) return '<div class="flow-card-body flow-empty">没有找到可展示的对话轮次。</div>';
+      const currentIndex = turns.findIndex(turn => turn.isCurrent);
+      const labels = { '-2': '上上轮', '-1': '上一轮', '0': '本轮', '1': '下一轮', '2': '下下轮' };
+      return `<div class="conversation-list">${turns.slice(0, 5).map((turn, index) => {
+        const offset = currentIndex >= 0 ? index - currentIndex : -1;
+        const label = labels[String(offset)] || (turn.isCurrent ? '本轮' : `第 ${index + 1} 轮`);
+        const currentClass = turn.isCurrent ? ' current' : '';
+        return `<div class="conversation-row${currentClass}">
+          <div class="conversation-label">${escapeHtml(label)}</div>
+          <div class="conversation-field"><div class="conversation-field-label">RecordId</div><div class="conversation-field-value">${escapeHtml(turn.recordId || '-')}</div></div>
+          <div class="conversation-field"><div class="conversation-field-label">原始输入</div><div class="conversation-field-value">${escapeHtml(turn.input || '-')}</div></div>
+          <div class="conversation-field"><div class="conversation-field-label">Plan</div><div class="conversation-field-value">${escapeHtml(turn.plan || '-')}</div></div>
+          <div class="conversation-field"><div class="conversation-field-label">TSM 下发 FC</div><div class="conversation-field-value">${escapeHtml(turn.tsmFunction || turn.function || '-')}</div></div>
+          <div class="conversation-field"><div class="conversation-field-label">Navi 最后 MCP</div><div class="conversation-field-value">${escapeHtml(turn.naviMcp || '-')}</div></div>
+        </div>`;
+      }).join('')}</div>`;
+    }
+
+    function renderNaviInfo(info) {
+      if (!info || typeof info !== 'object') return '<div class="flow-card-body flow-empty">没有提取到 NaviInfo。</div>';
+      const current = info.currentLocation || {};
+      const destination = info.destination || {};
+      const waypoints = info.waypoints;
+      const waypointText = Array.isArray(waypoints) ? `${waypoints.length} 个` : displayValue(waypoints);
+      const items = [
+        ['是否导航中', info.isNaving === true ? '是' : info.isNaving === false ? '否' : '-'],
+        ['当前城市', current.city], ['当前地点', current.name || current.address],
+        ['目的地', destination.name || destination.address], ['途经点', waypointText],
+        ['公司地址', (info.company || {}).name || (info.company || {}).address],
+        ['家庭地址', (info.home || {}).name || (info.home || {}).address]
+      ];
+      return `<div class="flow-card-body"><div class="naviinfo-grid">${items.map(([label, value]) => `<div class="naviinfo-item"><div class="naviinfo-label">${escapeHtml(label)}</div><div class="naviinfo-value">${escapeHtml(displayValue(value))}</div></div>`).join('')}</div><details><summary>展开完整 NaviInfo JSON</summary><pre>${escapeHtml(JSON.stringify(info, null, 2))}</pre></details></div>`;
+    }
+
+    function renderNaviInput(input) {
+      if (!input) return '<div class="flow-card-body flow-empty">没有提取到原始 Input。</div>';
+      const detail = input.functionDetail && Object.keys(input.functionDetail).length ? JSON.stringify(input.functionDetail, null, 2) : '';
+      return `<div class="flow-card-body"><div class="naviinfo-grid"><div class="naviinfo-item"><div class="naviinfo-label">用户输入</div><div class="naviinfo-value">${escapeHtml(input.text || '-')}</div></div><div class="naviinfo-item"><div class="naviinfo-label">来源</div><div class="naviinfo-value">${escapeHtml(input.source || '-')}</div></div><div class="naviinfo-item"><div class="naviinfo-label">请求函数</div><div class="naviinfo-value">${escapeHtml(input.function || '-')}</div></div></div>${detail ? `<details><summary>展开函数参数</summary><pre>${escapeHtml(detail)}</pre></details>` : ''}</div>`;
+    }
+
+    function renderFlowEvents(items) {
+      if (!items || !items.length) return '<div class="flow-card-body flow-empty">没有提取到关键流程节点。</div>';
+      return items.map(item => `<div class="flow-event ${escapeHtml(item.category || '')}"><div class="flow-event-time">${escapeHtml(formatTime(item.timestamp))}</div><div class="flow-event-service">${escapeHtml(item.service || '-')}</div><div class="flow-event-title">${escapeHtml(item.title)}</div><div class="flow-event-message">${escapeHtml(item.message)}</div></div>`).join('');
+    }
+
+    function renderRouteSummary(summary) {
+      if (!summary) return '<div class="flow-card-body flow-empty">没有提取到链路分支。</div>';
+      const nodes = (summary.nodes || []).map(node => `<div class="route-node"><div class="flow-event-time">${escapeHtml(formatTime(node.timestamp))}</div><div class="flow-event-service">${escapeHtml(node.service || '-')}</div><div class="route-node-title">${escapeHtml(node.title)}</div><div class="route-node-detail">${escapeHtml(node.detail || '-')}</div><div class="route-node-evidence">${escapeHtml(node.evidence || '')}</div></div>`).join('');
+      const sources = (summary.dataSources || []).map(source => `<span class="source-pill">${escapeHtml(source.title)}</span>`).join('');
+      return `<div class="route-headline">${escapeHtml(summary.headline || '未能形成确定链路')}</div>${nodes || '<div class="flow-card-body flow-empty">没有命中明确分支证据。</div>'}${sources ? `<div class="source-list">${sources}</div>` : ''}`;
+    }
+
+    function render(data) {
+      const verdictLabels = { multi: 'MULTI', single: '非 MULTI', unknown: '无法判断' };
+      const verdict = document.getElementById('verdict');
+      verdict.textContent = verdictLabels[data.verdict] || data.verdict;
+      verdict.className = `summary-value verdict ${data.verdict}`;
+      document.getElementById('reason').textContent = data.reason;
+      document.getElementById('planValue').textContent = data.plan || '-';
+      document.getElementById('multiIntent').textContent = data.isMultiIntent === null ? '-' : String(data.isMultiIntent);
+      document.getElementById('logCount').textContent = String(data.logCount);
+      document.getElementById('recentTurnsCard').innerHTML = renderRecentTurns(data.recentTurns || []);
+      document.querySelector('#recentTurnsSection h2').textContent = '1. 最近五轮对话';
+      document.querySelector('#recentTurnsSection .section-head span').textContent = '上上轮 · 上一轮 · 本轮 · 下一轮 · 下下轮';
+      document.getElementById('recentTurnsSection').classList.remove('hidden');
+      const naviLogsSection = document.getElementById('naviLogsSection');
+      const showNaviLogs = data.plan === 'simple_navi';
+      naviLogsSection.classList.toggle('hidden', !showNaviLogs);
+      if (showNaviLogs) {
+        document.getElementById('naviLogsCount').textContent = `${data.naviLogs.length} 条原始日志`;
+        document.getElementById('naviLogs').innerHTML = renderNaviLogs(data.naviLogs);
+        const flow = data.naviFlow || {};
+        document.getElementById('routeSummaryCard').innerHTML = renderRouteSummary(data.naviRouteSummary);
+        document.getElementById('routeUpstream').textContent = data.naviRouteSummary && data.naviRouteSummary.upstreamFunction ? `Navi 收到：${data.naviRouteSummary.upstreamFunction}` : 'Navi 收到的函数未明确';
+        document.getElementById('naviInfoCard').innerHTML = renderNaviInfo(flow.naviInfo);
+        document.getElementById('naviInputCard').innerHTML = renderNaviInput(flow.input);
+        document.getElementById('flowEvents').innerHTML = renderFlowEvents(flow.events);
+        document.getElementById('flowEventsCount').textContent = `${(flow.events || []).length} 个节点`;
+        document.getElementById('naviFinalOutput').innerHTML = flow.finalOutput
+          ? `<div class="navi-log-message">${escapeHtml(flow.finalOutput)}</div>`
+          : '<div class="flow-empty">没有提取到最终输出。</div>';
+      }
+      document.getElementById('queryDetails').textContent = [
+        `查询 ID: ${data.searchedId}`,
+        `时间窗口: ${data.start} - ${data.end}`,
+        `服务: ${data.indexedServices.join(', ')}`,
+        `命中服务: ${data.services.join(', ') || '-'}`,
+        `LogsQL: ${data.query}`,
+        data.diagnostic,
+        data.naviQuery ? `Navi LogsQL: ${data.naviQuery}` : '',
+        data.naviDiagnostic || ''
+      ].join('\n');
+      emptyState.classList.add('hidden');
+      results.classList.remove('hidden');
+    }
+
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      setError();
+      searchButton.disabled = true;
+      searchButton.textContent = '查询中...';
+      const payload = { recordId: recordInput.value.trim(), date: dateInput.value, scope };
+      try {
+        const response = await fetch('/api/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `查询失败（${response.status}）`);
+        localStorage.setItem('plan-log-viewer:last-id', payload.recordId);
+        render(data);
+      } catch (error) {
+        setError(error.message || String(error));
+      } finally {
+        searchButton.disabled = false;
+        searchButton.textContent = '查询分类';
+      }
+    });
+
+    fetch('/api/health')
+      .then(response => response.ok ? response.json() : Promise.reject())
+      .then(() => {
+        const status = document.getElementById('serverStatus');
+        status.textContent = '本地服务已连接';
+        status.classList.add('online');
+      })
+      .catch(() => { document.getElementById('serverStatus').textContent = '本地服务未连接'; });
+  </script>
+</body>
+</html>
